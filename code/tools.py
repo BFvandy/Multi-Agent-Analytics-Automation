@@ -13,6 +13,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _json_default(o):
+    """Convert numpy scalar types that the standard json encoder can't handle."""
+    if hasattr(o, "item"):   # numpy int64, float64, bool_, etc.
+        return o.item()
+    raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+
 # ── Data Source ───────────────────────────────────────────────────────────────
 # To switch datasets, change DATA_FILE here OR set DATA_FILE in your .env
 # Example: DATA_FILE=US_cc_transactions.csv
@@ -56,7 +64,8 @@ def load_data(csv_path: str = DEFAULT_CSV) -> pd.DataFrame:
     global _df
     if _df is None:
         print(f"Loading data from: {csv_path}")
-        _df = pd.read_csv(csv_path, parse_dates=["Date"])
+        _df = pd.read_csv(csv_path)
+        _df["Date"] = pd.to_datetime(_df["Date"], format="mixed")
         _df.columns = [c.strip() for c in _df.columns]
         _df["Amount"] = pd.to_numeric(_df["Amount"], errors="coerce")
         _df = _df.dropna(subset=["Amount", "Date"])
@@ -108,7 +117,7 @@ def get_overall_monthly_summary(csv_path: str = DEFAULT_CSV) -> str:
         "mom_volume_delta":      int(len(cur) - len(prev)),
         "mom_volume_pct_change": round((len(cur) / len(prev) - 1) * 100, 2) if len(prev) != 0 else None,
     }
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=_json_default)
 
 
 # ── Tool 2: YoY + CTG decomposition by dimension ─────────────────────────────
@@ -128,7 +137,7 @@ def get_dimension_decomposition(
     """
     valid_dims = ["Exp Type", "City", "Card Type"]
     if dimension not in valid_dims:
-        return json.dumps({"error": f"dimension must be one of {valid_dims}"})
+        return json.dumps({"error": f"dimension must be one of {valid_dims}"}, default=_json_default)
 
     df = load_data(csv_path)
 
@@ -171,7 +180,7 @@ def get_dimension_decomposition(
         "ctg_sum_check":        ctg_sum,
         "ctg_equals_total_yoy": abs(ctg_sum - total_yoy) < 0.05 if total_yoy else None,
     }
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=_json_default)
 
 
 # ── Tool 3: 7-day rolling average ────────────────────────────────────────────
@@ -205,7 +214,7 @@ def get_rolling_average(csv_path: str = DEFAULT_CSV) -> str:
         "daily_spend_current_window":   cur_daily.to_dict(orient="records"),
         "total_transactions_in_window": int(len(cur_window)),
     }
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=_json_default)
 
 
 # ── Tool 4: Drill-down into a specific segment ───────────────────────────────
@@ -258,7 +267,7 @@ def drill_down_segment(
         "ctg_pct_of_total_portfolio": seg_ctg,
         "cross_dimension_breakdown":  cross_tabs,
     }
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=_json_default)
 
 
 # ── Tool 5: Schema info ───────────────────────────────────────────────────────
@@ -294,4 +303,4 @@ def get_schema_info(csv_path: str = DEFAULT_CSV) -> str:
             "rolling_window":   f"{ROLLING_START.strftime('%Y-%m-%d')} to {ROLLING_END.strftime('%Y-%m-%d')}",
         },
     }
-    return json.dumps(result, indent=2)
+    return json.dumps(result, indent=2, default=_json_default)
