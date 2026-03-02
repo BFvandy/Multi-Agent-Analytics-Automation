@@ -35,7 +35,7 @@ DEFAULT_CSV = str(BASE_DIR / "data" / DATA_FILE)
 # To change the analysis window, change REFERENCE_DATE here OR set it in your .env
 # Example: REFERENCE_DATE=2015-11-01 → analyzes October 2015
 
-REFERENCE_DATE = pd.Timestamp(os.environ.get("REFERENCE_DATE", "2015-10-01"))
+REFERENCE_DATE = pd.Timestamp(os.environ.get("REFERENCE_DATE", "2025-03-01"))
 
 # All periods derived automatically from REFERENCE_DATE
 _current    = REFERENCE_DATE - pd.DateOffset(months=1)
@@ -135,7 +135,8 @@ def get_dimension_decomposition(
 
     dimension must be one of: 'Exp Type', 'City', 'Card Type'
     """
-    valid_dims = ["Exp Type", "City", "Card Type"]
+    # valid_dims = ["Exp Type", "City", "Card Type"]
+    valid_dims = ["Exp Type", "Card Type"]
     if dimension not in valid_dims:
         return json.dumps({"error": f"dimension must be one of {valid_dims}"}, default=_json_default)
 
@@ -240,7 +241,8 @@ def drill_down_segment(
     seg_yoy = round((cur["Amount"].sum() / py["Amount"].sum() - 1) * 100, 2) if py["Amount"].sum() != 0 else None
     seg_ctg = round(((cur["Amount"].sum() - py["Amount"].sum()) / total_py_all) * 100, 4) if total_py_all != 0 else None
 
-    other_dims = [d for d in ["Exp Type", "City", "Card Type"] if d != dimension]
+    # other_dims = [d for d in ["Exp Type", "City", "Card Type"] if d != dimension]
+    other_dims = [d for d in ["Exp Type", "Card Type"] if d != dimension]
     cross_tabs = {}
     for other in other_dims:
         cur_grp = cur.groupby(other)["Amount"].sum().rename("cur")
@@ -286,7 +288,8 @@ def get_schema_info(csv_path: str = DEFAULT_CSV) -> str:
         },
         "unique_values": {
             col: sorted(df[col].dropna().unique().tolist())
-            for col in ["City", "Card Type", "Exp Type", "Gender"]
+            # for col in ["City", "Card Type", "Exp Type", "Gender"]
+            for col in ["Card Type", "Exp Type", "Gender"]
             if col in df.columns
         },
         "amount_stats": {

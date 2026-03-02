@@ -27,7 +27,7 @@ async def main():
     print()
 
     model_client = OpenAIChatCompletionClient(
-        model="gpt-4o",
+        model="gpt-4o-mini",
         api_key=os.environ.get("OPENAI_API_KEY"),
     )
 
@@ -51,7 +51,7 @@ async def main():
     Run the full monthly analysis:
     1. Confirm schema and analysis periods via get_schema_info
     2. Overall spend: MoM delta, % change, transaction volume
-    3. YoY + CTG decomposition by: Exp Type, City, Card Type
+    3. YoY + CTG decomposition by: Exp Type, Card Type
     4. 7-day rolling average and rolling avg YoY
     5. Identify the biggest CTG mover across ALL dimensions and drill into it
     """
