@@ -1,6 +1,13 @@
 """
 Autonomous Multi-Agent Analytics System - POC
 Analysis window is driven by REFERENCE_DATE in .env or tools.py.
+
+Conversation flow:
+  1. Analyst runs ALL 5 steps, ends with "READY FOR REVIEW"
+  2. Manager reviews across 3 lenses, issues 3 numbered challenges
+  3. Analyst answers each challenge with data support, ends with "Awaiting approval."
+  4. Manager approves ("APPROVED") or issues final challenges
+  5. Max 12 messages
 """
 
 import asyncio
@@ -34,9 +41,9 @@ async def main():
     analyst = create_analyst_agent(model_client)
     manager = create_manager_agent(model_client)
 
-    # Stop when Manager says APPROVED or after 10 messages (2 full cycles)
+    # Terminate on APPROVED or after 12 messages
     termination = (
-        TextMentionTermination("APPROVED") | MaxMessageTermination(10)
+        TextMentionTermination("APPROVED") | MaxMessageTermination(12)
     )
 
     team = RoundRobinGroupChat(
@@ -48,23 +55,38 @@ async def main():
     Analyze credit card transaction data for {current_period}.
     Reference date is {REFERENCE_DATE.strftime('%B %d, %Y')}.
 
-    Run the full monthly analysis:
+    Run ALL 5 steps of your analytical workflow in full before handing off:
     1. Confirm schema and analysis periods via get_schema_info
     2. Overall spend: MoM delta, % change, transaction volume
-    3. YoY + CTG decomposition by: Exp Type, Card Type
+    3. YoY + CTG decomposition by: Exp Type and Card Type
     4. 7-day rolling average and rolling avg YoY
-    5. Identify the biggest CTG mover across ALL dimensions and drill into it
+    5. Identify the biggest CTG mover and drill into it
+
+    Complete ALL steps, write Key Findings, then write READY FOR REVIEW.
+    Do not stop or wait for feedback between steps.
     """
 
     print("Starting agent conversation...\n")
     print("-" * 60)
 
     async for message in team.run_stream(task=task):
-        if hasattr(message, "source") and hasattr(message, "content"):
+        source = getattr(message, "source", None)
+        content = getattr(message, "content", None)
+
+        # Skip non-text content (lists = raw tool calls/results)
+        if content is None or isinstance(content, list):
+            continue
+
+        content_str = str(content).strip()
+        if not content_str:
+            continue
+
+        # Only print Analyst and Manager readable text messages
+        if source in ("Analyst", "Manager"):
             print(f"\n{'=' * 60}")
-            print(f"[ {message.source.upper()} ]")
+            print(f"[ {source.upper()} ]")
             print(f"{'=' * 60}")
-            print(message.content)
+            print(content_str)
 
     print("\n" + "=" * 60)
     print("Analysis complete.")
