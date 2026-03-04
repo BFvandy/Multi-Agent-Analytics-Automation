@@ -1,13 +1,6 @@
 """
 Autonomous Multi-Agent Analytics System - POC
 Analysis window is driven by REFERENCE_DATE in .env or tools.py.
-
-Conversation flow:
-  1. Analyst runs ALL 5 steps, ends with "READY FOR REVIEW"
-  2. Manager reviews across 3 lenses, issues 3 numbered challenges
-  3. Analyst answers each challenge with data support, ends with "Awaiting approval."
-  4. Manager approves ("APPROVED") or issues final challenges
-  5. Max 12 messages
 """
 
 import asyncio
@@ -41,9 +34,9 @@ async def main():
     analyst = create_analyst_agent(model_client)
     manager = create_manager_agent(model_client)
 
-    # Terminate on APPROVED or after 12 messages
+    # Terminate on APPROVED or after 16 messages
     termination = (
-        TextMentionTermination("APPROVED") | MaxMessageTermination(12)
+        TextMentionTermination("FINAL APPROVED") | MaxMessageTermination(16)
     )
 
     team = RoundRobinGroupChat(
@@ -55,15 +48,15 @@ async def main():
     Analyze credit card transaction data for {current_period}.
     Reference date is {REFERENCE_DATE.strftime('%B %d, %Y')}.
 
-    Run ALL 5 steps of your analytical workflow in full before handing off:
+    Run ALL 5 steps of your analytical workflow completely before handing off:
     1. Confirm schema and analysis periods via get_schema_info
     2. Overall spend: MoM delta, % change, transaction volume
     3. YoY + CTG decomposition by: Exp Type and Card Type
     4. 7-day rolling average and rolling avg YoY
     5. Identify the biggest CTG mover and drill into it
 
-    Complete ALL steps, write Key Findings, then write READY FOR REVIEW.
-    Do not stop or wait for feedback between steps.
+    Complete ALL 5 steps. End with Key Findings and READY FOR REVIEW.
+    Do not stop between steps. Do not narrate tool calls — just run them and report results.
     """
 
     print("Starting agent conversation...\n")
@@ -81,7 +74,11 @@ async def main():
         if not content_str:
             continue
 
-        # Only print Analyst and Manager readable text messages
+        # Skip raw function call / execution noise
+        if content_str.startswith("[FunctionCall") or content_str.startswith("[FunctionExecution"):
+            continue
+
+        # Only show Analyst and Manager
         if source in ("Analyst", "Manager"):
             print(f"\n{'=' * 60}")
             print(f"[ {source.upper()} ]")
