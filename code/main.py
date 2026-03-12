@@ -34,10 +34,8 @@ async def main():
     analyst = create_analyst_agent(model_client)
     manager = create_manager_agent(model_client)
 
-    # Terminate on APPROVED or after 16 messages
-    termination = (
-        TextMentionTermination("FINAL APPROVED") | MaxMessageTermination(16)
-    )
+    # Terminate on FINAL APPROVED (only when no CHALLENGE in same message) or after 16 messages
+    termination = MaxMessageTermination(16)
 
     team = RoundRobinGroupChat(
         participants=[analyst, manager],
@@ -84,6 +82,10 @@ async def main():
             print(f"[ {source.upper()} ]")
             print(f"{'=' * 60}")
             print(content_str)
+
+        # Custom termination: FINAL APPROVED only when no CHALLENGE in same message
+        if source == "Manager" and "FINAL APPROVED" in content_str and "CHALLENGE" not in content_str:
+            break
 
     print("\n" + "=" * 60)
     print("Analysis complete.")
