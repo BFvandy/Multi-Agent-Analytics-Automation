@@ -40,18 +40,14 @@ Reference Date Input
 Phase 1 — Steps 1-3 (Analyst)
   Step 1: Schema & data quality check
   Step 2: Overall MoM + YoY portfolio summary
-  Step 3: CTG decomposition by Card Type & Exp Type
-          + 12-month YoY line charts
-          + 12-month CTG stacked bar charts
+  Step 3: CTG decomposition by Card Type & Exp Type and Charts
         │
         ▼
   ✋ Checkpoint 1 — User reviews analysis
         │
         ▼
 Phase 2 — Step 4 (Analyst)
-  Step 4: Filter to top Card Type driver
-          → Exp Type decomposition within that card
-          → Top sub-driver identification
+  Step 4: Filter to top Card Type driver, Top sub-driver identification
         │
         ▼
 Round 2 — Master identifies search queries
@@ -68,12 +64,6 @@ Round 4 — Master writes narrative + slide JSON spec
         ▼
 Round 5 — Visualization generates PowerPoint slide
 ```
-
-### Key Metrics
-- **YoY %** = `(segment_current / segment_prior_year) − 1`
-- **CTG %** = `(segment_current − segment_prior_year) / total_prior_year_spend`
-  - All CTGs for a dimension sum to total portfolio YoY ✓
-- **Trend charts** = 12 completed months before the reference date, month-over-same-month-prior-year
 
 ---
 
