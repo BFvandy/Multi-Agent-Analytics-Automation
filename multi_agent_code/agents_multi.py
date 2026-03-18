@@ -15,11 +15,11 @@ from tools import (
     get_schema_info,
     get_overall_monthly_summary,
     get_dimension_decomposition,
-    get_rolling_average,
+    get_segment_decomposition,
     drill_down_segment,
+    web_search,
+    generate_slide,
 )
-from tools_search import web_search
-from tools_viz import generate_slide
 
 
 def create_master_agent(model_client: OpenAIChatCompletionClient) -> AssistantAgent:
@@ -40,7 +40,8 @@ def create_analyst_agent_multi(model_client: OpenAIChatCompletionClient) -> Assi
             get_schema_info,
             get_overall_monthly_summary,
             get_dimension_decomposition,
-            get_rolling_average,
+            get_trend_charts,
+            get_segment_decomposition,
             drill_down_segment,
         ],
         reflect_on_tool_use=True,

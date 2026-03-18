@@ -1,20 +1,19 @@
-# Virtual environment
-multi_agent_analytics_env/
-
-# Node modules
-node_modules/
-multi_agent_code/node_modules/
-
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-
-# Output files
-output/
 
 # Environment variables
-.env
-
+# Node modules
 # OS files
+# Output files
+# Python cache
+# Virtual environment
+*.pyc
+*.pyo
 .DS_Store
+.env
+__pycache__/
+data/*.csv
+multi_agent_analytics_env/
+multi_agent_code/_slide_payload.json
+multi_agent_code/node_modules/
+node_modules/
+output/
+venv/
