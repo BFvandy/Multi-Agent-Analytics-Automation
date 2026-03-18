@@ -1,88 +1,230 @@
-# Autonomous Multi-Agent Analytics System — POC
+# Multi-Agent Analytics Automation
 
-A two-agent AutoGen system that automates monthly credit card spend analysis.
+An end-to-end multi-agent framework for automated financial analytics — built with AutoGen, connected to Google BigQuery, and served through a real-time group chat UI.
 
-## Agents
-- **Analyst** — runs the full analytical workflow using Python tools
-- **Manager** — critiques across 3 lenses: data accuracy, driver attribution, recommendation justification
+![Python](https://img.shields.io/badge/Python-3.11-blue) ![AutoGen](https://img.shields.io/badge/AutoGen-agentchat-orange) ![BigQuery](https://img.shields.io/badge/Google-BigQuery-4285F4) ![Flask](https://img.shields.io/badge/Flask-3.x-lightgrey)
+
+---
+
+## What It Does
+
+Given a reference date, the system automatically:
+
+1. **Pulls live transaction data** from Google BigQuery
+2. **Runs a 5-step analytical pipeline** across 4 specialist AI agents
+3. **Generates 12-month trend charts** (YoY line + CTG stacked bar) rendered inline in the chat UI
+4. **Searches the web** for external context explaining the key driver
+5. **Writes an executive narrative** combining quantitative findings with external context
+6. **Generates a PowerPoint slide** with chart, table, and key insights
+7. **Streams everything in real time** to a dark-themed group chat UI
+
+---
+
+## Agent Team
+
+| Agent | Role | Tools |
+|-------|------|-------|
+| 🎯 **Master** | Orchestrates the pipeline, writes narratives, directs other agents | None (coordinates only) |
+| 📈 **Analyst** | Runs all quantitative analysis across 5 structured steps | BigQuery → pandas tools |
+| 🔍 **WebSearch** | Finds external factors explaining spend trends | Serper.dev search API |
+| 🎨 **Visualization** | Generates the final PowerPoint slide | pptxgenjs (Node.js) |
+
+---
+
+## Analytical Pipeline
+
+```
+Reference Date Input
+        │
+        ▼
+Phase 1 — Steps 1-3 (Analyst)
+  Step 1: Schema & data quality check
+  Step 2: Overall MoM + YoY portfolio summary
+  Step 3: CTG decomposition by Card Type & Exp Type
+          + 12-month YoY line charts
+          + 12-month CTG stacked bar charts
+        │
+        ▼
+  ✋ Checkpoint 1 — User reviews analysis
+        │
+        ▼
+Phase 2 — Step 4 (Analyst)
+  Step 4: Filter to top Card Type driver
+          → Exp Type decomposition within that card
+          → Top sub-driver identification
+        │
+        ▼
+Round 2 — Master identifies search queries
+        │
+        ▼
+Round 3 — WebSearch runs queries, returns external context
+        │
+        ▼
+Round 4 — Master writes narrative + slide JSON spec
+        │
+        ▼
+  ✋ Checkpoint 2 — User reviews narrative (can request deeper analysis)
+        │
+        ▼
+Round 5 — Visualization generates PowerPoint slide
+```
+
+### Key Metrics
+- **YoY %** = `(segment_current / segment_prior_year) − 1`
+- **CTG %** = `(segment_current − segment_prior_year) / total_prior_year_spend`
+  - All CTGs for a dimension sum to total portfolio YoY ✓
+- **Trend charts** = 12 completed months before the reference date, month-over-same-month-prior-year
+
+---
+
+## Tech Stack
+
+- **Agents**: [AutoGen AgentChat](https://github.com/microsoft/autogen) with GPT-4o
+- **Data**: Google BigQuery (with local CSV fallback)
+- **Analytics**: pandas
+- **Web Search**: Serper.dev API
+- **Slide Generation**: pptxgenjs (Node.js)
+- **Server**: Flask with Server-Sent Events (SSE) for real-time streaming
+- **UI**: Vanilla HTML/CSS/JS + Chart.js — dark group chat interface
+
+---
+
+## Project Structure
+
+```
+Multi-Agent-Analytics-Automation/
+├── multi_agent_code/
+│   ├── server.py              # Flask server — SSE broadcast, checkpoint routing
+│   ├── pipeline.py            # Pipeline orchestration — 5 rounds, 2 checkpoints
+│   ├── agents_multi.py        # Agent definitions (Master, Analyst, WebSearch, Viz)
+│   ├── prompts_multi.py       # System prompts for all 4 agents
+│   ├── tools.py               # All tools: BigQuery loader, analytics, search, slide gen
+│   ├── generate_slide.js      # Node.js PowerPoint builder (pptxgenjs)
+│   ├── main_multi.py          # Terminal mode entry point
+│   └── ui/
+│       └── index.html         # Group chat UI with inline Chart.js charts
+├── data/                      # Local CSV fallback (not committed)
+├── output/                    # Generated .pptx files (not committed)
+├── .env                       # API keys and config (never commit)
+└── requirements.txt
+```
+
+---
 
 ## Setup
 
-### 1. Create and activate virtual environment
+### Prerequisites
+- Python 3.11+
+- Node.js (for slide generation)
+- Google Cloud account (free tier works)
+- OpenAI API key
+- Serper.dev API key (free tier: 2,500 searches/month)
+
+### 1. Clone and create virtual environment
+
 ```bash
-python -m venv multi_agent_analytics_env
-source multi_agent_analytics_env/bin/activate  # Mac/Linux
-# or
-multi_agent_analytics_env\Scripts\activate     # Windows
+git clone https://github.com/BFvandy/Multi-Agent-Analytics-Automation.git
+cd Multi-Agent-Analytics-Automation
+python -m venv venv
+source venv/bin/activate
 ```
 
-### 2. Install dependencies
+### 2. Install Python dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Configure your .env file
-Create a `.env` file in the project root:
-```
-OPENAI_API_KEY=sk-your-actual-key-here
-REFERENCE_DATE=2015-10-01
-```
+### 3. Install Node dependencies
 
-- `OPENAI_API_KEY` — your OpenAI API key
-- `REFERENCE_DATE` — the "today" date for the analysis. The system will analyze the month just before this date.
-  - e.g. `2015-10-01` → analyzes September 2015
-  - e.g. `2015-11-01` → analyzes October 2015
-  - If not set, defaults to `2015-10-01`
-
-### 4. Add your data
-Place your CSV at `data/transactions.csv`.
-
-Expected columns:
-| Column    | Type   | Notes                    |
-|-----------|--------|--------------------------|
-| Date      | date   | e.g. 2015-09-15          |
-| City      | string | city segmentation        |
-| Card Type | string | product segmentation     |
-| Exp Type  | string | expense/category type    |
-| Gender    | string | demographic segmentation |
-| Amount    | float  | transaction amount       |
-
-### 5. Run
 ```bash
-python main.py
+cd multi_agent_code
+npm install pptxgenjs
 ```
 
-## Project Structure
-```
-analytics_agents/
-├── main.py          # Entry point — runs the agent conversation
-├── agents.py        # Analyst and Manager agent definitions
-├── prompts.py       # System prompts for both agents
-├── tools.py         # All metric calculations (YoY, CTG, rolling avg, drill-down)
-├── requirements.txt
-├── .env             # Your API key and reference date (never commit this)
-└── data/
-    └── transactions.csv   ← your data goes here
+### 4. Set up Google BigQuery
+
+```bash
+# Install gcloud CLI (macOS)
+brew install --cask google-cloud-sdk
+
+# Authenticate
+gcloud auth login
+gcloud auth application-default login
+gcloud config set project YOUR_PROJECT_ID
+gcloud auth application-default set-quota-project YOUR_PROJECT_ID
+
+# Install BigQuery Python client
+pip install google-cloud-bigquery db-dtypes pyarrow
 ```
 
-## Changing the Analysis Period
-Only one thing to update — in your `.env` file:
-```
-REFERENCE_DATE=2015-11-01   # now analyzes October 2015
-```
-All periods (current month, prior month, prior year, rolling window) update automatically.
+Upload your transaction CSV to BigQuery. Expected schema:
 
-## Metrics
-- **YoY**: `(current_period / prior_year_period) - 1`
-- **CTG**: `(segment_current - segment_prior_year) / total_prior_year_spend`
-  - All CTGs for a dimension sum to total portfolio YoY ✓
-- **7-day Rolling Avg**: `SUM(last 7 days of current month) / 7`
-- **7-day Rolling Avg YoY**: `(rolling_avg_current / rolling_avg_prior_year) - 1`
+| Column | Type |
+|--------|------|
+| Date | DATE |
+| City | STRING |
+| Card Type | STRING |
+| Exp Type | STRING |
+| Gender | STRING |
+| Amount | FLOAT |
 
-## Conversation Flow
-1. Analyst confirms schema and analysis periods
-2. Analyst runs all 5 steps using tools, hands off to Manager
-3. Manager critiques across 3 lenses, requests revisions
-4. Analyst revises
-5. Manager approves ("APPROVED") or does one more cycle
-6. Max 10 messages before forced termination
+### 5. Configure `.env`
+
+```env
+OPENAI_API_KEY=sk-...
+SERPER_API_KEY=...
+BQ_PROJECT=your-gcp-project-id
+BQ_TABLE=your-project.your_dataset.your_table
+
+# Optional — set USE_CSV=true to use local CSV instead of BigQuery
+# DATA_FILE=India_cc_transactions.csv
+# USE_CSV=false
+```
+
+### 6. Run
+
+```bash
+# Web UI (recommended)
+python server.py
+# → open http://localhost:8080
+
+# Terminal mode
+python main_multi.py
+```
+
+---
+
+## Usage
+
+1. Open `http://localhost:8080`
+2. Enter a reference date (`YYYY-MM-01`) — e.g. `2025-03-01` analyses February 2025
+3. Watch the agents work in real time in the group chat
+4. Review analysis at **Checkpoint 1** — press Continue or type feedback
+5. Review narrative at **Checkpoint 2** — press Continue or request a deeper drill-down
+6. Download the generated `.pptx` slide at the end
+
+---
+
+## Configuration
+
+| `.env` variable | Default | Description |
+|----------------|---------|-------------|
+| `BQ_PROJECT` | — | GCP project ID |
+| `BQ_TABLE` | — | Full BigQuery table path |
+| `USE_CSV` | `false` | Set to `true` to use local CSV instead |
+| `DATA_FILE` | `India_cc_transactions.csv` | CSV filename (relative to `data/`) |
+| `OPENAI_API_KEY` | — | OpenAI API key |
+| `SERPER_API_KEY` | — | Serper.dev API key for web search |
+| `PORT` | `8080` | Flask server port |
+
+> **Note for macOS users**: Port 5000 is used by AirPlay Receiver. Use port 8080 (default) or disable AirPlay in System Settings → AirDrop & Handoff.
+
+---
+
+## Key Design Decisions
+
+- **Pipeline calls `get_trend_charts` directly** — not via the agent. LLMs silently normalize percentage values to decimals when serializing JSON, corrupting chart data. The pipeline calls the tool in Python and emits chart events directly to the UI, bypassing the LLM entirely.
+- **Two-phase analyst** — Steps 1-3 and Step 4 are separate `run_until_complete` calls. This ensures Step 4 (key driver drill-down) always runs regardless of how long Step 3 takes.
+- **SSE broadcast queue** — each browser connection gets its own queue. `_push()` writes to all queues simultaneously, so reconnects and multiple tabs both receive the full event stream.
+- **BigQuery with thread-safe loading** — a threading lock prevents duplicate queries when multiple pipeline threads call `load_data()` concurrently on startup.
