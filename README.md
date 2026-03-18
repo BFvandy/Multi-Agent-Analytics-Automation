@@ -12,7 +12,7 @@ Demo
 <img width="1383" height="838" alt="image" src="https://github.com/user-attachments/assets/f30f7daf-a7f3-4db9-94c2-e3886798ef85" />
 
 Link to Data in BigQuery
-<img width="1383" height="838" alt="image" src="https://github.com/user-attachments/assets/bf20ea27-117f-4dd9-94e7-3704e0967641" />
+<img width="1543" height="898" alt="image" src="https://github.com/user-attachments/assets/156f3717-12fb-4b73-9bbb-c163c6195088" />
 
 ---
 
