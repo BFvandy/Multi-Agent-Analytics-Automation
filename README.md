@@ -4,6 +4,13 @@ An end-to-end multi-agent framework for automated financial analytics — built 
 
 ![Python](https://img.shields.io/badge/Python-3.11-blue) ![AutoGen](https://img.shields.io/badge/AutoGen-agentchat-orange) ![BigQuery](https://img.shields.io/badge/Google-BigQuery-4285F4) ![Flask](https://img.shields.io/badge/Flask-3.x-lightgrey)
 
+
+Demo
+
+<img width="1000" height="733" alt="image" src="https://github.com/user-attachments/assets/3cc5dc15-c6a3-422d-a191-264887e564ad" />
+<img width="1001" height="830" alt="image" src="https://github.com/user-attachments/assets/843639a2-9b41-423c-81b6-f4e87ec41993" />
+<img width="1383" height="838" alt="image" src="https://github.com/user-attachments/assets/f30f7daf-a7f3-4db9-94c2-e3886798ef85" />
+
 ---
 
 ## What It Does
