@@ -8,8 +8,12 @@ An end-to-end multi-agent framework for automated financial analytics — built 
 Demo
 
 <img width="1000" height="733" alt="image" src="https://github.com/user-attachments/assets/3cc5dc15-c6a3-422d-a191-264887e564ad" />
+
 <img width="1001" height="830" alt="image" src="https://github.com/user-attachments/assets/843639a2-9b41-423c-81b6-f4e87ec41993" />
+
+Agents taking in user feedback and master agent assign tasks to analyst agent:
 <img width="1224" height="862" alt="image" src="https://github.com/user-attachments/assets/1477d01e-2a84-48ab-8c8e-602bc238b76f" />
+
 <img width="1383" height="838" alt="image" src="https://github.com/user-attachments/assets/f30f7daf-a7f3-4db9-94c2-e3886798ef85" />
 
 Link to Data in BigQuery
