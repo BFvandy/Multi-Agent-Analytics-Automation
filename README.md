@@ -1,6 +1,6 @@
 
 
-# Multi-Agent Analytics Automation
+# Automonus Multi-Agent Data Analytics
 
 An end-to-end multi-agent framework for automated business analytics — built with AutoGen, connected to Google BigQuery, and served through a real-time group chat UI. Supports any monthly dataset through a simple configuration layer.
 
