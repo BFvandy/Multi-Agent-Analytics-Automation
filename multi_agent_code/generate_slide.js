@@ -122,12 +122,12 @@ async function buildSlide(data) {
     fontFace: "Calibri", margin: 0,
   });
 
-  const chartColors = (data.chartData || []).map(d => d.value >= 0 ? C.blue : C.accent);
+  const chartColors = (data.chartData || []).map(d => d.ctg >= 0 ? C.blue : C.accent);
   slide.addChart(pres.charts.BAR, [
     {
-      name: "YoY %",
+      name: "CTG %",
       labels: data.chartData.map(d => d.label),
-      values: data.chartData.map(d => d.value),
+      values: data.chartData.map(d => d.ctg),
     }
   ], {
     x: RIGHT_X, y: CONTENT_Y + 0.32,

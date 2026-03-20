@@ -1165,6 +1165,10 @@ function startPipeline() {
 
 // ── SSE Connection ───────────────────────────────────────────
 function connectSSE() {
+  if (eventSource) {
+    eventSource.close();
+    eventSource = null;
+  }
   eventSource = new EventSource('/stream');
   eventSource.onmessage = e => {
     const event = JSON.parse(e.data);
@@ -1455,32 +1459,41 @@ function appendRoundDivider(round, label, agent) {
   scrollBottom();
 }
 
+let _checkpointSeq = 0;   // increments every time a checkpoint is shown
+
 function appendCheckpoint(id, text) {
+  // Remove any previous checkpoint card for this id (loop re-use)
+  document.querySelectorAll('.checkpoint-card').forEach(el => el.remove());
+
+  _checkpointSeq++;
+  const uid = `${id}-${_checkpointSeq}`;
+
   const card = document.createElement('div');
   card.className = 'checkpoint-card';
-  card.id = `checkpoint-${id}`;
+  card.id = `checkpoint-${uid}`;
   card.innerHTML = `
     <div class="checkpoint-label">⏸ Checkpoint ${id}</div>
     <div class="checkpoint-text">${text}</div>
     <div class="checkpoint-input-row">
-      <input class="checkpoint-input" id="cp-input-${id}" placeholder="e.g. 'dive into Signature Card' — or leave blank to proceed to slide…" />
-      <button class="checkpoint-btn continue" id="cp-btn-${id}" onclick="submitCheckpoint(${id})">Continue ▶</button>
+      <input class="checkpoint-input" id="cp-input-${uid}" placeholder="Type feedback or leave blank to continue…" />
+      <button class="checkpoint-btn continue" id="cp-btn-${uid}" onclick="submitCheckpointUid('${uid}')">Continue ▶</button>
     </div>
   `;
-  pendingCheckpoint = card;
+  pendingCheckpoint = { uid };
   getMessages().appendChild(card);
-  const inp = card.querySelector(`#cp-input-${id}`);
-  inp.addEventListener('keydown', e => { if (e.key === 'Enter') submitCheckpoint(id); });
+  const inp = card.querySelector(`#cp-input-${uid}`);
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') submitCheckpointUid(uid); });
   scrollBottom();
   setTimeout(() => inp.focus(), 80);
 }
 
-function submitCheckpoint(id) {
-  const inp = document.getElementById(`cp-input-${id}`);
-  const btn = document.getElementById(`cp-btn-${id}`);
+function submitCheckpointUid(uid) {
+  const inp = document.getElementById(`cp-input-${uid}`);
+  const btn = document.getElementById(`cp-btn-${uid}`);
   const text = inp ? inp.value.trim() : '';
   if (btn) btn.disabled = true;
   if (inp) inp.disabled = true;
+  disableChatInput();
 
   fetch('/respond', {
     method: 'POST',
@@ -1489,9 +1502,17 @@ function submitCheckpoint(id) {
   });
 }
 
+function submitCheckpoint(id) {
+  // Legacy — find the active checkpoint card for this id
+  if (pendingCheckpoint && pendingCheckpoint.uid) {
+    submitCheckpointUid(pendingCheckpoint.uid);
+  }
+}
+
 function disableCheckpoints() {
   document.querySelectorAll('.checkpoint-btn').forEach(b => b.disabled = true);
   document.querySelectorAll('.checkpoint-input').forEach(i => i.disabled = true);
+  pendingCheckpoint = null;
 }
 
 function appendStatus(text) {
@@ -1626,15 +1647,12 @@ function sendMessage() {
   inp.value  = '';
   disableChatInput();
 
-  // Find active checkpoint id
-  const activeCp = document.querySelector('.checkpoint-card .checkpoint-btn:not([disabled])');
-  if (activeCp) {
-    const id = activeCp.id.replace('cp-btn-', '');
-    const cpInput = document.getElementById(`cp-input-${id}`);
-    if (cpInput) cpInput.value = text;
-    submitCheckpoint(id);
+  if (pendingCheckpoint && pendingCheckpoint.uid) {
+    // Pre-fill the active checkpoint input so the user sees what was sent
+    const cpInp = document.getElementById(`cp-input-${pendingCheckpoint.uid}`);
+    if (cpInp) cpInp.value = text;
+    submitCheckpointUid(pendingCheckpoint.uid);
   } else {
-    // Fallback — just send to /respond
     fetch('/respond', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

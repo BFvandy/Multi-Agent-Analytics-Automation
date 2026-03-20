@@ -7,6 +7,7 @@ wait_for_input()        → blocks until the user responds
 """
 
 import asyncio
+import json as _json
 import os
 import re
 from dotenv import load_dotenv
@@ -166,7 +167,7 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
     if reference_date is None:
         reference_date = _prompt_reference_date()
 
-    tools.init(reference_date)
+    tools.init(reference_date)   # reads DATASET_PRESET from .env automatically
 
     current_period = _period_label(*tools.CURRENT_MONTH)
     print(f"[pipeline] period: {current_period}")
@@ -189,29 +190,65 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
     # ── Round 1a: Analyst — Steps 1-3 (summary + decomposition + charts) ────────
     emit("round", {"round": 1, "label": "Quantitative Analysis — Summary & Decomposition", "agent": "analyst"})
 
-    analyst_steps123 = await run_until_complete(
+    # ── Round 1a-i: Step 1 — Schema ──────────────────────────────────────────
+    emit("round", {"round": 1, "label": "Step 1 — Schema & Periods", "agent": "analyst"})
+    step1_output = await run_until_complete(
         analyst,
         task=(
-            f"Analyze credit card transaction data for {current_period}. "
-            f"Reference date is {tools.REFERENCE_DATE.strftime('%B %d, %Y')}. "
-            "Run PHASE 1 only: Steps 1, 2, and 3. "
-            "Step 1: call get_schema_info. "
-            "Step 2: call get_overall_monthly_summary. "
-            "Step 3: call get_dimension_decomposition for 'Card Type' then 'Exp Type'. "
-            "Present summary tables and state TOP CARD TYPE DRIVER and TOP EXP TYPE DRIVER. "
-            "End with exactly: STEPS 1-3 COMPLETE"
+            f"Call get_schema_info for the credit card dataset. "
+            f"Reference date is {tools.REFERENCE_DATE.strftime('%B %d, %Y')}, analysing {current_period}. "
+            "Report the date range, row count, columns, card types, exp types, and analysis periods. "
+            "End with exactly: STEP 1 COMPLETE"
         ),
-        trigger="STEPS 1-3 COMPLETE",
+        trigger="STEP 1 COMPLETE",
         token=token,
         label="analyst",
         emit=emit,
-        max_attempts=4,
+        max_attempts=3,
     )
+
+    # ── Round 1a-ii: Step 2 — Monthly Summary ────────────────────────────────
+    emit("round", {"round": 1, "label": "Step 2 — Monthly Summary", "agent": "analyst"})
+    step2_output = await run_until_complete(
+        analyst,
+        task=(
+            f"Call get_overall_monthly_summary for {current_period}. "
+            "Report total spend, MoM change, YoY change, and transaction volume. "
+            "End with exactly: STEP 2 COMPLETE"
+        ),
+        trigger="STEP 2 COMPLETE",
+        token=token,
+        label="analyst",
+        emit=emit,
+        max_attempts=3,
+    )
+
+    # ── Round 1a-iii: Step 3 — CTG Decomposition ─────────────────────────────
+    emit("round", {"round": 1, "label": "Step 3 — CTG Decomposition", "agent": "analyst"})
+    cfg      = tools.DATASET_CONFIG
+    dim_list = " then ".join(f"'{d}'" for d in cfg.dimensions)
+    step3_output = await run_until_complete(
+        analyst,
+        task=(
+            f"Call get_dimension_decomposition for {dim_list}. "
+            f"The value column is '{cfg.value_col}' ({cfg.value_label}). "
+            f"For each dimension, present a table: Segment | {cfg.value_label} Current | {cfg.value_label} Prior Year | YoY % | CTG %. "
+            f"After all tables state: TOP {cfg.primary_dim.upper()} DRIVER: [name] (CTG: X%, YoY: X%). "
+            "End with exactly: STEP 3 COMPLETE"
+        ),
+        trigger="STEP 3 COMPLETE",
+        token=token,
+        label="analyst",
+        emit=emit,
+        max_attempts=3,
+    )
+
+    analyst_steps123 = "\n\n".join([step1_output, step2_output, step3_output])
 
     # ── Emit trend charts directly from pipeline ──────────────────────────────
     emit("round", {"round": 1, "label": "12-Month Trend Charts", "agent": "analyst"})
     emit("status", {"text": "Generating 12-month trend charts…"})
-    for dimension in ["Card Type", "Exp Type"]:
+    for dimension in tools.DATASET_CONFIG.dimensions:
         try:
             raw = tools.get_trend_charts(dimension)
             data = _json.loads(raw)
@@ -244,9 +281,10 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
         task=(
             f"You have completed Steps 1-3 for {current_period}. Here is your prior output:\n\n"
             f"{analyst_steps123}\n\n"
-            "Now run Step 4: identify the TOP CARD TYPE DRIVER from your Step 3 output above, "
-            "then call `get_segment_decomposition` with that exact card type value. "
-            "Present the full Exp Type breakdown table within that card segment. "
+            f"Now run Step 4: identify the top '{cfg.primary_dim}' driver from your Step 3 output above, "
+            f"then call `get_segment_decomposition` passing that exact value as `primary_segment_value`. "
+            f"This will show '{cfg.secondary_dim}' breakdown within that {cfg.primary_dim} segment. "
+            f"Present the full breakdown table: {cfg.secondary_dim} | {cfg.value_label} Current | {cfg.value_label} Prior Year | YoY % | CTG (within segment) | CTG (portfolio). "
             "State the TOP SUB-DRIVER and write an ANALYTICAL OBSERVATION. "
             "Then write Key Findings (3 bullets across all steps). "
             "End with exactly: ANALYSIS COMPLETE"
@@ -261,13 +299,85 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
     # Combine both parts so downstream agents have the full picture
     analyst_output = analyst_steps123 + "\n\n" + analyst_step4
 
-    emit("checkpoint", {
-        "id":   1,
-        "text": "Review the analysis above. Press Continue or type feedback.",
-    })
-    user_input = await wait_for_input() if asyncio.iscoroutinefunction(wait_for_input) else wait_for_input()
-    emit("user_message", {"content": user_input or "Looks good, continue."})
-    feedback = f"\nUser feedback: {user_input}" if user_input else ""
+    # ── Checkpoint 1 feedback loop ────────────────────────────
+    # Master reads user input, routes to the right agent if needed,
+    # and loops until the user approves.
+    checkpoint1_context = analyst_output
+    while True:
+        emit("checkpoint", {
+            "id":   1,
+            "text": "Review the analysis above. Type a question, request more analysis, or press Continue to proceed.",
+        })
+        user_input = await wait_for_input() if asyncio.iscoroutinefunction(wait_for_input) else wait_for_input()
+        emit("user_message", {"content": user_input or "Looks good, continue."})
+
+        # Blank / approval → break out of loop
+        APPROVAL = {"", "ok", "continue", "looks good", "proceed", "yes", "approve", "approved"}
+        if user_input.strip().lower() in APPROVAL:
+            break
+
+        # Master decides what to do with the feedback
+        emit("round", {"round": 1, "label": "Handling Your Feedback", "agent": "master"})
+        master_feedback_resp = await master.run(
+            task=(
+                f"The user has reviewed the analysis for {current_period} and provided feedback.\n\n"
+                f"FULL ANALYSIS SO FAR:\n{checkpoint1_context}\n\n"
+                f"USER FEEDBACK: {user_input}\n\n"
+                "Decide what action to take:\n"
+                "- If it's a question you can answer from the data above, answer it directly.\n"
+                "- If it requires more data analysis, write exactly: ROUTE_TO_ANALYST: [specific instruction for analyst]\n"
+                "- If it requires web research, write exactly: ROUTE_TO_SEARCH: [specific search queries]\n"
+                "After handling it, summarise what you did for the user."
+            ),
+            cancellation_token=token,
+        )
+        master_feedback_text = get_text(master_feedback_resp)
+        emit("message", {"agent": "master", "content": master_feedback_text})
+
+        # Route to Analyst if needed — use a fresh agent to avoid stale history
+        if "ROUTE_TO_ANALYST:" in master_feedback_text:
+            instruction = master_feedback_text.split("ROUTE_TO_ANALYST:")[-1].strip().split("\n")[0]
+            emit("round", {"round": 1, "label": "Additional Analysis", "agent": "analyst"})
+            fresh_analyst = _make_intercepting_analyst(model_client, emit)
+            extra = await run_until_complete(
+                fresh_analyst,
+                task=(
+                    f"You are a senior data analyst. The user has requested additional analysis for {current_period}.\n\n"
+                    f"INSTRUCTION: {instruction}\n\n"
+                    f"AVAILABLE TOOLS: get_dimension_decomposition, get_segment_decomposition, drill_down_segment, get_overall_monthly_summary.\n"
+                    f"The value column is '{cfg.value_col}', dimensions are {cfg.dimensions}.\n\n"
+                    "Call the most relevant tool(s), show the results clearly in a table, "
+                    "and write 2-3 key observations. "
+                    "End with exactly: ANALYSIS COMPLETE"
+                ),
+                trigger="ANALYSIS COMPLETE",
+                token=token,
+                label="analyst",
+                emit=emit,
+                max_attempts=4,
+            )
+            checkpoint1_context += f"\n\nADDITIONAL ANALYSIS (user request: '{user_input}'):\n{extra}"
+
+        # Route to WebSearch if needed
+        elif "ROUTE_TO_SEARCH:" in master_feedback_text:
+            queries = master_feedback_text.split("ROUTE_TO_SEARCH:")[-1].strip().split("\n")[0]
+            emit("round", {"round": 1, "label": "Additional Research", "agent": "search"})
+            extra_search = await run_until_complete(
+                websearch,
+                task=(
+                    f"Run the following search queries:\n{queries}\n\n"
+                    "Synthesise findings clearly. End with: SEARCH COMPLETE"
+                ),
+                trigger="SEARCH COMPLETE",
+                token=token,
+                label="search",
+                emit=emit,
+            )
+            checkpoint1_context += f"\n\nADDITIONAL RESEARCH (user request: '{user_input}'):\n{extra_search}"
+
+        # Loop back to show another checkpoint
+
+    analyst_output = checkpoint1_context
 
     # ── Round 2: Master search queries ────────────────────────
     emit("round", {"round": 2, "label": "Identifying Search Topics", "agent": "master"})
@@ -275,9 +385,13 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
     master_r2 = await master.run(
         task=(
             f"Here is the Data Analyst's quantitative analysis for {current_period}:\n\n"
-            f"{analyst_output}{feedback}\n\n"
-            "Identify the key driver and write 2-3 specific web search queries "
-            "to find external factors explaining this trend. End with: SEARCH QUERIES READY"
+            f"{analyst_output}\n\n"
+            f"DATASET CONTEXT: value metric = '{cfg.value_col}' ({cfg.value_label}), "
+            f"primary dimension = '{cfg.primary_dim}', secondary dimension = '{cfg.secondary_dim}'.\n\n"
+            f"Identify the KEY DRIVER (the '{cfg.primary_dim}' segment with the highest absolute CTG, "
+            f"and the top '{cfg.secondary_dim}' within it from Step 4). "
+            "Write 2-3 specific web search queries to explain WHY this driver performed the way it did. "
+            "Use the actual segment names from the analysis. End with: SEARCH QUERIES READY"
         ),
         cancellation_token=token,
     )
@@ -310,6 +424,9 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
             f"You are writing an executive summary combining two inputs:\n\n"
             f"QUANTITATIVE ANALYSIS ({current_period}):\n{analyst_output}\n\n"
             f"EXTERNAL CONTEXT (web research):\n{search_output}\n\n"
+            f"DATASET CONTEXT: value metric = '{cfg.value_col}' ({cfg.value_label}), "
+            f"primary dimension = '{cfg.primary_dim}', secondary dimension = '{cfg.secondary_dim}'. "
+            f"Use these exact names throughout — do not substitute with other dataset terminology.\n\n"
             "Write a 3-5 sentence executive narrative combining what happened and why. "
             "Then output the complete slide JSON spec with ALL segments. "
             "End with: NARRATIVE READY — AWAITING YOUR APPROVAL"
@@ -319,88 +436,185 @@ async def run(emit, wait_for_input, reference_date: str | None = None):
     master_output4 = get_text(master_r4)
     emit("message", {"agent": "master", "content": master_output4})
 
-    emit("checkpoint", {
-        "id":   2,
-        "text": "Review the narrative and slide spec. Press Continue to generate the slide, or type a request for deeper analysis.",
-    })
-    user_input2 = await wait_for_input() if asyncio.iscoroutinefunction(wait_for_input) else wait_for_input()
-    emit("user_message", {"content": user_input2 or "Looks good, generate the slide."})
+    # ── Checkpoint 2 feedback loop ────────────────────────────
+    # Same pattern as checkpoint 1 — Master routes to agents as needed,
+    # loops until user approves, then proceeds to visualization.
+    checkpoint2_context = {
+        "analyst_output": analyst_output,
+        "search_output":  search_output,
+        "master_output4": master_output4,
+    }
 
-    # ── Optional: additional analyst drill-down if user requests it ──────────
-    # Detect if the user is asking for more analysis vs. just approving.
-    # Keywords that signal a drill-down request rather than simple approval.
-    ANALYSIS_KEYWORDS = [
-        "drill", "deep", "dive", "filter", "segment", "break down", "breakdown",
-        "analyse", "analyze", "focus on", "look into", "investigate", "explore",
-        "why", "detail", "more on", "expand", "further", "specifically",
-    ]
-    is_analysis_request = bool(user_input2) and any(
-        kw in user_input2.lower() for kw in ANALYSIS_KEYWORDS
-    )
+    while True:
+        emit("checkpoint", {
+            "id":   2,
+            "text": "Review the narrative and slide spec. Type a question, request changes, or press Continue to generate the slide.",
+        })
+        user_input2 = await wait_for_input() if asyncio.iscoroutinefunction(wait_for_input) else wait_for_input()
+        emit("user_message", {"content": user_input2 or "Looks good, generate the slide."})
 
-    if is_analysis_request:
-        emit("round", {"round": 4, "label": "Additional Deep-Dive", "agent": "analyst"})
-        emit("status", {"text": "Routing back to Analyst for deeper analysis…"})
+        APPROVAL = {"", "ok", "continue", "looks good", "proceed", "yes", "approve", "approved", "generate", "generate the slide"}
+        if user_input2.strip().lower() in APPROVAL:
+            master_output4 = checkpoint2_context["master_output4"]
+            break
 
-        additional_analysis = await run_until_complete(
-            analyst,
+        # Master decides what to do
+        emit("round", {"round": 4, "label": "Handling Your Feedback", "agent": "master"})
+        master_fb2 = await master.run(
             task=(
-                f"The user has reviewed your analysis of {current_period} and has a follow-up request:\n\n"
-                f"USER REQUEST: {user_input2}\n\n"
-                f"Here is the full prior analysis for context:\n{analyst_output}\n\n"
-                "Run the relevant tool(s) to address this request specifically. "
-                "Show results clearly and write Key Findings for this drill-down. "
-                "End with exactly: ANALYSIS COMPLETE"
-            ),
-            trigger="ANALYSIS COMPLETE",
-            token=token,
-            label="analyst",
-            emit=emit,
-        )
-
-        # Combine original + new analysis, re-run Master narrative
-        emit("round", {"round": 4, "label": "Updated Narrative", "agent": "master"})
-        combined_analysis = (
-            f"ORIGINAL ANALYSIS:\n{analyst_output}\n\n"
-            f"ADDITIONAL DRILL-DOWN (per user request: '{user_input2}'):\n{additional_analysis}"
-        )
-
-        master_r4b = await master.run(
-            task=(
-                f"The analyst has produced an updated analysis incorporating the user's follow-up request.\n\n"
-                f"{combined_analysis}\n\n"
-                f"EXTERNAL CONTEXT (web research):\n{search_output}\n\n"
-                "Write an updated 3-5 sentence executive narrative and a revised slide JSON spec "
-                "that reflects both the original findings AND the new drill-down. "
-                "End with: NARRATIVE READY — AWAITING YOUR APPROVAL"
+                f"The user has reviewed the narrative and slide spec and provided feedback.\n\n"
+                f"CURRENT NARRATIVE AND SLIDE SPEC:\n{checkpoint2_context['master_output4']}\n\n"
+                f"FULL ANALYSIS CONTEXT:\n{checkpoint2_context['analyst_output']}\n\n"
+                f"WEB RESEARCH:\n{checkpoint2_context['search_output']}\n\n"
+                f"USER FEEDBACK: {user_input2}\n\n"
+                "Decide what action to take:\n"
+                "- If it's a question you can answer from the context above, answer it directly, then output an updated narrative and slide spec.\n"
+                "- If it requires more data analysis, write exactly: ROUTE_TO_ANALYST: [specific instruction]\n"
+                "- If it requires web research, write exactly: ROUTE_TO_SEARCH: [specific queries]\n"
+                "- If it's an edit to the narrative or slide, apply the edit and output the full updated spec.\n"
+                "Always end with the complete updated slide JSON spec and: NARRATIVE READY — AWAITING YOUR APPROVAL"
             ),
             cancellation_token=token,
         )
-        master_output4 = get_text(master_r4b)
-        emit("message", {"agent": "master", "content": master_output4})
+        master_fb2_text = get_text(master_fb2)
 
-    # ── Round 5: Visualization ────────────────────────────────
+        # Route to Analyst if needed — fresh agent to avoid stale history
+        if "ROUTE_TO_ANALYST:" in master_fb2_text:
+            instruction = master_fb2_text.split("ROUTE_TO_ANALYST:")[-1].strip().split("\n")[0]
+            emit("round", {"round": 4, "label": "Additional Analysis", "agent": "analyst"})
+            fresh_analyst2 = _make_intercepting_analyst(model_client, emit)
+            extra = await run_until_complete(
+                fresh_analyst2,
+                task=(
+                    f"You are a senior data analyst. The user has requested additional analysis for {current_period}.\n\n"
+                    f"INSTRUCTION: {instruction}\n\n"
+                    f"AVAILABLE TOOLS: get_dimension_decomposition, get_segment_decomposition, drill_down_segment, get_overall_monthly_summary.\n"
+                    f"The value column is '{cfg.value_col}', dimensions are {cfg.dimensions}.\n\n"
+                    "Call the most relevant tool(s), show the results clearly in a table, "
+                    "and write 2-3 key observations. "
+                    "End with exactly: ANALYSIS COMPLETE"
+                ),
+                trigger="ANALYSIS COMPLETE",
+                token=token,
+                label="analyst",
+                emit=emit,
+                max_attempts=4,
+            )
+            checkpoint2_context["analyst_output"] += f"\n\nADDITIONAL ANALYSIS:\n{extra}"
+
+            # Re-run Master narrative with new data
+            emit("round", {"round": 4, "label": "Updated Narrative", "agent": "master"})
+            master_updated = await master.run(
+                task=(
+                    f"Updated analysis available. Revise the narrative and slide spec.\n\n"
+                    f"FULL ANALYSIS:\n{checkpoint2_context['analyst_output']}\n\n"
+                    f"WEB RESEARCH:\n{checkpoint2_context['search_output']}\n\n"
+                    f"USER REQUEST: {user_input2}\n\n"
+                    "Output the complete updated narrative and slide JSON spec. "
+                    "End with: NARRATIVE READY — AWAITING YOUR APPROVAL"
+                ),
+                cancellation_token=token,
+            )
+            master_fb2_text = get_text(master_updated)
+
+        # Route to WebSearch if needed
+        elif "ROUTE_TO_SEARCH:" in master_fb2_text:
+            queries = master_fb2_text.split("ROUTE_TO_SEARCH:")[-1].strip().split("\n")[0]
+            emit("round", {"round": 4, "label": "Additional Research", "agent": "search"})
+            extra_search = await run_until_complete(
+                websearch,
+                task=(
+                    f"Run the following search queries:\n{queries}\n\n"
+                    "Synthesise findings clearly. End with: SEARCH COMPLETE"
+                ),
+                trigger="SEARCH COMPLETE",
+                token=token,
+                label="search",
+                emit=emit,
+            )
+            checkpoint2_context["search_output"] += f"\n\nADDITIONAL RESEARCH:\n{extra_search}"
+
+            # Re-run Master narrative with new search context
+            emit("round", {"round": 4, "label": "Updated Narrative", "agent": "master"})
+            master_updated = await master.run(
+                task=(
+                    f"Additional web research available. Revise the narrative and slide spec.\n\n"
+                    f"FULL ANALYSIS:\n{checkpoint2_context['analyst_output']}\n\n"
+                    f"UPDATED WEB RESEARCH:\n{checkpoint2_context['search_output']}\n\n"
+                    f"USER REQUEST: {user_input2}\n\n"
+                    "Output the complete updated narrative and slide JSON spec. "
+                    "End with: NARRATIVE READY — AWAITING YOUR APPROVAL"
+                ),
+                cancellation_token=token,
+            )
+            master_fb2_text = get_text(master_updated)
+
+        emit("message", {"agent": "master", "content": master_fb2_text})
+        checkpoint2_context["master_output4"] = master_fb2_text
+        # Loop back for another checkpoint
+
+    # ── Round 5: Visualization ─────────────────────────────────
+    # Call generate_slide directly from pipeline — bypasses LLM timeout entirely.
+    # The viz agent was timing out because node takes >60s with large payloads.
     emit("round", {"round": 5, "label": "Slide Generation", "agent": "viz"})
+    emit("status", {"text": "Extracting slide spec from narrative…"})
 
-    ref_str = tools.REFERENCE_DATE.strftime("%Y%m")
-    viz_output = await run_until_complete(
-        visualization,
-        task=(
-            f"Generate a PowerPoint slide using this spec:\n\n"
-            f"{master_output4}\n\n"
-            f"Use output filename: analytics_{ref_str}.pptx\n"
-            "End with: VISUALIZATION COMPLETE"
-        ),
-        trigger="VISUALIZATION COMPLETE",
-        token=token,
-        label="viz",
-        emit=emit,
-    )
+    ref_str        = tools.REFERENCE_DATE.strftime("%Y%m")
+    output_filename = f"analytics_{ref_str}.pptx"
 
-    emit("slide_ready", {
-        "filename":  f"analytics_{ref_str}.pptx",
-        "narrative": master_output4,
-    })
+    # Parse the JSON spec out of master_output4
+    import re as _re
+    slide_result = None
+    json_match = _re.search(r'```json\s*(\{.*?\})\s*```', master_output4, _re.DOTALL)
+    if json_match:
+        try:
+            spec = _json.loads(json_match.group(1))
+            emit("status", {"text": "Generating PowerPoint slide…"})
+            raw = tools.generate_slide(
+                title           = spec.get("title", "Analytics Report"),
+                subtitle        = spec.get("subtitle", ""),
+                bullets         = spec.get("bullets", []),
+                chart_title     = spec.get("chart_title", ""),
+                chart_data      = spec.get("chart_data", []),
+                table_title     = spec.get("table_title", ""),
+                table_data      = spec.get("table_data", [[]]),
+                footnote        = spec.get("footnote", ""),
+                output_filename = output_filename,
+            )
+            slide_result = _json.loads(raw)
+            print(f"[pipeline] generate_slide result: {slide_result}")
+        except Exception as e:
+            print(f"[pipeline] slide generation error: {e}")
+            emit("status", {"text": f"Slide error: {e}"})
+    else:
+        print("[pipeline] No JSON spec found in master narrative — falling back to viz agent")
+        viz_output = await run_until_complete(
+            visualization,
+            task=(
+                f"Generate a PowerPoint slide using this spec:\n\n"
+                f"{master_output4}\n\n"
+                f"Use output filename: {output_filename}\n"
+                "End with: VISUALIZATION COMPLETE"
+            ),
+            trigger="VISUALIZATION COMPLETE",
+            token=token,
+            label="viz",
+            emit=emit,
+            max_attempts=2,
+        )
+
+    # Only emit slide_ready if the file actually exists
+    from pathlib import Path as _Path
+    output_path = _Path(tools._TOOLS_DIR).parent / "output" / output_filename
+    if output_path.exists():
+        emit("message", {"agent": "viz", "content": f"✅ Slide saved to `output/{output_filename}`"})
+        emit("slide_ready", {
+            "filename":  output_filename,
+            "narrative": master_output4,
+        })
+    else:
+        emit("message", {"agent": "viz", "content": "⚠️ Slide generation failed — file was not created. Check that Node.js and pptxgenjs are installed correctly."})
+        emit("status", {"text": "Slide generation failed. Run: cd multi_agent_code && npm install pptxgenjs"})
 
 
 # Allow running pipeline standalone (terminal mode) for testing
