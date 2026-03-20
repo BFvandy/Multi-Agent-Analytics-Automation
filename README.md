@@ -16,8 +16,9 @@ Agents taking in user feedback and master agent assign tasks to analyst agent:
 
 <img width="1383" height="838" alt="image" src="https://github.com/user-attachments/assets/f30f7daf-a7f3-4db9-94c2-e3886798ef85" />
 
-Link to Data in BigQuery
-<img width="1543" height="898" alt="image" src="https://github.com/user-attachments/assets/156f3717-12fb-4b73-9bbb-c163c6195088" />
+Directly Query Data from BigQuery
+<img width="1458" height="929" alt="image" src="https://github.com/user-attachments/assets/343e8d8d-7358-4d23-9eaf-6a8c5d83c666" />
+
 
 ---
 
